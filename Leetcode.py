@@ -192,7 +192,8 @@ class LeetcodeDownloader(object):
         file_name = "%s-%s" % (table_data_list['status'], table_data_list['code_id'])
         file_ext  = ext_dic.get(table_data_list['lang'], '.txt')
         file_full_name = os.path.join(file_path, file_name + file_ext)
-        if not os.path.exists(file_full_name):
+        exists = os.path.exists(file_full_name)
+        if not exists:
             comment_char = comment_char_dic.get(table_data_list['lang'], '//')
             description = self.get_question_description(table_data_list['questions_url'])
             with open(file_full_name, 'w') as file_handle:
@@ -213,12 +214,17 @@ class LeetcodeDownloader(object):
                 file_handle.write(self.code(table_data_list['code_id'])
                                   .encode(self.output_encoding)
                                   .replace('\r', ''))
-        return file_full_name
+        return {
+            "file_full_name": file_full_name,
+            "exists": exists,
+        }
 
     def get_and_save_all_codes(self):
         for table_data_list in self.page_code_all():
             result = dict(table_data_list)
-            result['path'] = self.save_code(table_data_list)
+            code_result = self.save_code(table_data_list)
+            result['path'] = code_result["file_full_name"]
+            result['exists'] = code_result["exists"]
             yield result
 
 
@@ -241,11 +247,18 @@ if __name__ == '__main__':
 
     def func(row):
         result = dict(row)
-        result['path'] = downloader.save_code(row)
+        code_result = downloader.save_code(row)
+        result['path'] = code_result["file_full_name"]
+        result['exists'] = code_result["exists"]
         return result
 
     task_bar = TaskBar(40)
     print "Loading submissions..."
-    task_param_list = list((func, ([table_data_list], {})) for table_data_list in downloader.page_code_all())
+    task_param_list = task_bar.processing(
+        task=lambda: list((func, ([table_data_list], {})) for table_data_list in downloader.page_code_all()),
+        title=" Loading submissions...",
+        show_total=False
+    )
+    print "ok, %s submissions found in %.2fs." % (len(task_param_list), task_bar.time_cost)
     print "Downloading submissions..."
     task_bar.do_task(task_param_list)
