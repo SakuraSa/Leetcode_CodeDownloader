@@ -3,10 +3,9 @@
 
 import os
 import re
-import time
 import requests
 import datetime
-from BeautifulSoup import BeautifulSoup
+import BeautifulSoup
 
 #url requests setting
 host_url                = 'https://oj.leetcode.com'
@@ -45,21 +44,25 @@ class LeetcodeDownloader(object):
         self.username = username
         self.password = password
         login_page = self.session.get(login_url)
-        soup = BeautifulSoup(login_page.text)
+        soup = BeautifulSoup.BeautifulSoup(login_page.text)
         secret_input = soup.find('form').find('input', type='hidden')
         payload = dict(
             login=self.username,
             password=self.password,
         )
         payload[secret_input['name']] = secret_input['value']
-        rsp = self.session.post(login_url, data=payload, headers=leetcode_request_header)
-        return rsp.status_code == 200
+        self.session.post(login_url, data=payload, headers=leetcode_request_header)
+        return self.is_logged_in
+
+    @property
+    def is_logged_in(self):
+        return bool(self.session.cookies.get("PHPSESSID", None))
 
     def login_from_github(self, username, password):
         self.username = username
         self.password = password
         leetcode_github_login_page = self.session.get('https://github.com/login')
-        soup = BeautifulSoup(leetcode_github_login_page.text)
+        soup = BeautifulSoup.BeautifulSoup(leetcode_github_login_page.text)
         post_div = soup.find('div', id='login')
         github_post_url = 'https://github.com/session'
         payload = dict()
@@ -72,12 +75,11 @@ class LeetcodeDownloader(object):
         if self.session.cookies['logged_in'] != 'yes':
             return False
         rsp = self.session.get(github_login_url)
-        print rsp.text.encode('utf-8')
-        return True
+        return rsp.status_code == 200
 
     def get_questions(self):
         rsp = self.session.get(question_list_url)
-        soup = BeautifulSoup(rsp.text)
+        soup = BeautifulSoup.BeautifulSoup(rsp.text)
         question_table = soup.find('table', id='problemList')
         question_table_body = question_table.find('tbody')
         for table_row in question_table_body.findAll('tr'):
@@ -95,6 +97,49 @@ class LeetcodeDownloader(object):
                 per=per
             )
 
+    def get_question_description(self, url):
+        rsp = self.session.get(url)
+        soup = BeautifulSoup.BeautifulSoup(rsp.text)
+        name = soup.find("h3").text
+        accepted_count = int(soup.find("span", attrs={"class": "total-ac text-info"}).find("strong").text)
+        submission_count = int(soup.find("span", attrs={"class": "total-submit text-info"}).find("strong").text)
+
+        def transform(div):
+            lst = []
+            for item in div:
+                if isinstance(item, BeautifulSoup.NavigableString):
+                    lst.append(item)
+                elif isinstance(item, BeautifulSoup.Tag):
+                    if item.name == "p":
+                        lst.append("%s\n" % transform(item))
+                    elif item.name == "b":
+                        lst.append("###%s###" % transform(item))
+                    elif item.name == "a":
+                        lst.append("[%s](%s)" % (transform(item), item["href"]))
+                    elif item.name == "code":
+                        lst.append("`%s`" % transform(item))
+                    elif item.name == "pre":
+                        lst.append("```%s```" % transform(item))
+                    elif item.name == "ul":
+                        lst.append(transform(item))
+                    elif item.name == "div":
+                        lst.append(transform(item))
+                    elif item.name == "li":
+                        lst.append("* %s" % transform(item))
+                    elif item.name == "br":
+                        lst.append("\n")
+                    else:
+                        lst.append(item.text)
+            return "".join(lst)
+        description = transform(soup.find("div", attrs={"class": "question-content"}))
+
+        return {
+            'name': name,
+            'accepted_count': accepted_count,
+            'submission_count': submission_count,
+            'description': description.replace("\r", "")
+        }
+
     def code(self, code_id):
         code_url = code_base_url % code_id
         rsp = self.session.get(code_url)
@@ -104,7 +149,7 @@ class LeetcodeDownloader(object):
     def page_code(self, page_index=0):
         code_url = code_list_base_url % page_index
         rsp = self.session.get(code_url)
-        soup = BeautifulSoup(rsp.text)
+        soup = BeautifulSoup.BeautifulSoup(rsp.text)
         table = soup.find('table', id='result_testcases')
         if table is None:
             return []
@@ -149,15 +194,25 @@ class LeetcodeDownloader(object):
         file_full_name = os.path.join(file_path, file_name + file_ext)
         if not os.path.exists(file_full_name):
             comment_char = comment_char_dic.get(table_data_list['lang'], '//')
+            description = self.get_question_description(table_data_list['questions_url'])
             with open(file_full_name, 'w') as file_handle:
-                file_handle.write(comment_char + 'Author  : %s\n' % self.username)
-                file_handle.write(comment_char + 'Question: %s\n' % table_data_list['name'])
-                file_handle.write(comment_char + 'Link    : %s\n' % table_data_list['questions_url'])
-                file_handle.write(comment_char + 'Language: %s\n' % table_data_list['lang'])
-                file_handle.write(comment_char + 'Status  : %s\n' % table_data_list['status'])
-                file_handle.write(comment_char + 'Run Time: %s\n' % table_data_list['runtime'])
+                file_handle.write(comment_char + 'Author     : %s\n' % self.username)
+                file_handle.write(comment_char + 'Question   : %s\n' % table_data_list['name'])
+                file_handle.write(comment_char + 'Link       : %s\n' % table_data_list['questions_url'])
+                file_handle.write(comment_char + 'Language   : %s\n' % table_data_list['lang'])
+                file_handle.write(comment_char + 'Status     : %s\n' % table_data_list['status'])
+                file_handle.write(comment_char + 'Run Time   : %s\n' % table_data_list['runtime'])
+                file_handle.write(comment_char + 'Description: \n')
+                for line in description["description"].split("\n"):
+                    if line.strip():
+                        file_handle.write(comment_char)
+                        file_handle.write(line.encode(self.output_encoding))
+                        file_handle.write("\n")
                 file_handle.write('\n')
-                file_handle.write(self.code(table_data_list['code_id']).encode(self.output_encoding))
+                file_handle.write(comment_char + 'Code       : \n')
+                file_handle.write(self.code(table_data_list['code_id'])
+                                  .encode(self.output_encoding)
+                                  .replace('\r', ''))
         return file_full_name
 
     def get_and_save_all_codes(self):
@@ -166,20 +221,31 @@ class LeetcodeDownloader(object):
             result['path'] = self.save_code(table_data_list)
             yield result
 
+
 if __name__ == '__main__':
-    downloader = LeetcodeDownloader()
     #login form leetcode account
-    downloader.login(username='YOUR USERNAME', password='YOUR PASSWORD')
+    USERNAME = 'YOUR USERNAME'
+    PASSWORD = 'YOUR PASSWORD'
     #login form github account
     #downloader.login_from_github(username='YOUR USERNAME', password='YOUR PASSWORD')
 
-    start_time = time.time()
-    print ''
-    print 'Index'.rjust(6), 'Status'.rjust(30), 'Lang'.rjust(6), 'Questions'
-    for index, row in enumerate(downloader.get_and_save_all_codes()):
-        print '%6d' % index, '%30s' % row['status'], '%6s' % row['lang'], row['name']
-    print ''
+    from taskbar import TaskBar
 
-    cost_time = time.time() - start_time
+    downloader = LeetcodeDownloader()
+    print "Logging..."
+    if downloader.login(username=USERNAME, password=PASSWORD):
+        print "ok, logged in."
+    else:
+        print "error, logging failed."
+        exit()
 
-    print 'complete in %.2fs' % cost_time
+    def func(row):
+        result = dict(row)
+        result['path'] = downloader.save_code(row)
+        return result
+
+    task_bar = TaskBar(40)
+    print "Loading submissions..."
+    task_param_list = list((func, ([table_data_list], {})) for table_data_list in downloader.page_code_all())
+    print "Downloading submissions..."
+    task_bar.do_task(task_param_list)
