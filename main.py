@@ -9,16 +9,22 @@ import datetime
 from BeautifulSoup import BeautifulSoup
 
 #url requests setting
-host_url           = 'https://oj.leetcode.com'
-login_url          = 'https://oj.leetcode.com/accounts/login/'
-question_list_url  = 'https://oj.leetcode.com/problems/'
-code_base_url      = 'https://oj.leetcode.com/submissions/detail/%s/'
-code_list_base_url = 'https://oj.leetcode.com/submissions/%d/'
-code_regex         = re.compile("storage\.put\('(python|cpp|java)', '([^']+)'\);")
-request_header     = {
+host_url                = 'https://oj.leetcode.com'
+login_url               = 'https://oj.leetcode.com/accounts/login/'
+question_list_url       = 'https://oj.leetcode.com/problems/'
+code_base_url           = 'https://oj.leetcode.com/submissions/detail/%s/'
+code_list_base_url      = 'https://oj.leetcode.com/submissions/%d/'
+github_login_url        = 'https://oj.leetcode.com/accounts/github/login/'
+code_regex              = re.compile("storage\.put\('(python|cpp|java)', '([^']+)'\);")
+leetcode_request_header = {
     'Host': 'oj.leetcode.com',
     'Origin': 'https://oj.leetcode.com',
     'Referer': 'https://oj.leetcode.com/accounts/login/'
+}
+github_request_header   = {
+    'Host': 'github.com',
+    'Origin': 'https://github.com',
+    'Referer': 'https://github.com/'
 }
 
 #code setting
@@ -27,18 +33,18 @@ comment_char_dic = {'python': '#', 'cpp': '//', 'java': '//'}
 
 
 class LeetcodeDownloader(object):
-    def __init__(self, username, password, proxies=None, code_path='codes/', output_encoding='utf-8'):
-        self.username = username
-        self.password = password
+    def __init__(self, proxies=None, code_path='codes/', output_encoding='utf-8', session=None):
         self.proxies = proxies or {}
         self.code_path = code_path
         self.output_encoding = output_encoding
-        self.session = requests.Session()
-        if not self.login():
-            raise Exception('Error: %s logging failed.' % self.username)
+        self.session = session or requests.Session()
+        self.session.proxies = self.proxies
+        self.username = self.password = ''
 
-    def login(self):
-        login_page = self.session.get(login_url, proxies=self.proxies)
+    def login(self, username, password):
+        self.username = username
+        self.password = password
+        login_page = self.session.get(login_url)
         soup = BeautifulSoup(login_page.text)
         secret_input = soup.find('form').find('input', type='hidden')
         payload = dict(
@@ -46,11 +52,31 @@ class LeetcodeDownloader(object):
             password=self.password,
         )
         payload[secret_input['name']] = secret_input['value']
-        rsp = self.session.post(login_url, proxies=self.proxies, data=payload, headers=request_header)
+        rsp = self.session.post(login_url, data=payload, headers=leetcode_request_header)
         return rsp.status_code == 200
 
+    def login_from_github(self, username, password):
+        self.username = username
+        self.password = password
+        leetcode_github_login_page = self.session.get('https://github.com/login')
+        soup = BeautifulSoup(leetcode_github_login_page.text)
+        post_div = soup.find('div', id='login')
+        github_post_url = 'https://github.com/session'
+        payload = dict()
+        for ip in post_div.findAll('input'):
+            value = ip.get('value', None)
+            if value:
+                payload[ip['name']] = value
+        payload['login'], payload['password'] = username, password
+        self.session.post(github_post_url, data=payload, headers=github_request_header)
+        if self.session.cookies['logged_in'] != 'yes':
+            return False
+        rsp = self.session.get(github_login_url)
+        print rsp.text.encode('utf-8')
+        return True
+
     def get_questions(self):
-        rsp = self.session.get(question_list_url, proxies=self.proxies)
+        rsp = self.session.get(question_list_url)
         soup = BeautifulSoup(rsp.text)
         question_table = soup.find('table', id='problemList')
         question_table_body = question_table.find('tbody')
@@ -71,17 +97,17 @@ class LeetcodeDownloader(object):
 
     def code(self, code_id):
         code_url = code_base_url % code_id
-        rsp = self.session.get(code_url, proxies=self.proxies)
+        rsp = self.session.get(code_url)
         match = code_regex.search(rsp.text)
         return match.group(2).decode('raw_unicode_escape')
 
     def page_code(self, page_index=0):
         code_url = code_list_base_url % page_index
-        rsp = self.session.get(code_url, proxies=self.proxies)
+        rsp = self.session.get(code_url)
         soup = BeautifulSoup(rsp.text)
         table = soup.find('table', id='result_testcases')
         if table is None:
-            return
+            return []
         table_body = table.find('tbody')
         number_reg = re.compile('\d+')
         lst = list()
@@ -141,7 +167,11 @@ class LeetcodeDownloader(object):
             yield result
 
 if __name__ == '__main__':
-    downloader = LeetcodeDownloader(username='YOUR USERNAME', password='YOUR PASSWORD')
+    downloader = LeetcodeDownloader()
+    #login form leetcode account
+    downloader.login(username='YOUR USERNAME', password='YOUR PASSWORD')
+    #login form github account
+    #downloader.login_from_github(username='YOUR USERNAME', password='YOUR PASSWORD')
 
     start_time = time.time()
     print ''
