@@ -164,13 +164,19 @@ class LeetcodeDownloader(object):
             code_id = int(number_reg.search(table_data[2].find('a')['href']).group(0))
             runtime = table_data[3].text.strip()
             lang = table_data[4].text
+            file_name = "%s-%s" % (status, code_id)
+            file_ext  = ext_dic.get(lang, '.txt')
+            file_path = os.path.join(self.code_path, name)
+            file_full_name = os.path.join(file_path, file_name + file_ext)
+            exists = os.path.exists(file_full_name)
             lst.append(dict(
                 name=name,
                 questions_url=questions_url,
                 status=status,
                 code_id=code_id,
                 runtime=runtime,
-                lang=lang
+                lang=lang,
+                exists=exists
             ))
         return lst
 

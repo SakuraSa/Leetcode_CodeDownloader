@@ -53,8 +53,13 @@ docs/_build/
 # PyBuilder
 target/
 
+# PyCharm
+.idea
+
 # myTest
 test.py
 
 #downloaded codes
 codes/
+run.bat
+run.sh

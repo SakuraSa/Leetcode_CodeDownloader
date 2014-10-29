@@ -64,7 +64,7 @@ class TaskBar(object):
                       " [%d/%d] %.1fs/%.1fs %.2fspt" % (index + 1, count, time_cost, esp_time, spt))
             result_list.append(task(*args, **kwargs))
         self.time_cost = time_cost = time.time() - start_time
-        self.spt = spt = count / time_cost
+        self.spt = spt = count / time_cost if abs(time_cost) > 0.00001 else 0
         self.show(1.0, " [%d/%d] %.1fs/%.1fs %.2fspt" % (count, count, time_cost, time_cost, spt))
         self.finish()
         if show_total:
